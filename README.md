@@ -14,8 +14,39 @@ changes. This README grows alongside the implementation, one pull request at a t
 
 ```bash
 uv sync --extra dev
+atlas-corpus          # generate the corpus under ./data
 uv run pytest
 ```
+
+## The corpus and golden set
+
+The corpus is **fully seeded and template-driven — no LLM calls, no network**. Same
+inputs in, byte-identical corpus out. That determinism is what makes the downstream
+evaluation numbers trustworthy and keeps the repo public-safe.
+
+- **8 documents / 24 citable spans**: procurement policies, vendor MSAs, and a
+  negotiation log. Each span carries a stable id (e.g. `POL-001#S1`) so the golden
+  set and the retriever can cite it directly — the citation contract holds end to end.
+- **8 golden Q/A items** across three answer types: `grounded` (answer lives in
+  specific spans), `multi_hop` (combine spans across documents), and `unanswerable`
+  (absent by design — the agent must refuse).
+
+Every artifact is a validated Pydantic model, and the `Corpus` model enforces
+referential integrity: a golden item cannot reference a span that no document
+contains.
+
+### Planted hard cases
+
+| Trap                | Where                                           | What it tests            |
+| ------------------- | ----------------------------------------------- | ------------------------ |
+| Contradiction       | AcmeCloud 99.9% vs NorthLink 99.5% uptime       | cross-document reasoning |
+| Threshold precision | POL-001 ($50k) vs near-duplicate POL-002 ($25k) | reranker precision       |
+| Unanswerable        | supplier-gift question (Q-006)                  | refuse-if-ungrounded     |
+| Anti-splitting      | $120k split question (Q-007)                    | policy reasoning         |
+
+`atlas-corpus` writes one markdown file per document (with recoverable
+`<!-- span:ID -->` anchors), a `manifest.json` span index, and `golden.jsonl` for
+the eval harness.
 
 ## License
 
