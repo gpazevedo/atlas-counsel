@@ -16,6 +16,7 @@ changes. This README grows alongside the implementation, one pull request at a t
 uv sync --extra dev
 atlas-corpus          # generate the corpus under ./data
 uv run python -m atlas_counsel.ingest --dry-run   # in-memory retrieval demo
+uv run python -m atlas_counsel.eval               # offline eval + per-tag breakdown
 uv run pytest
 ```
 
@@ -82,6 +83,34 @@ uv run pytest tests/test_qdrant_integration.py -v
 
 The integration test skips automatically when `qdrant-client` is absent or no
 server is reachable, so the default offline suite never depends on it.
+
+## Evaluation harness
+
+Measured *before* the agent exists, so every later change is regression-checked
+rather than asserted.
+
+```bash
+uv run python -m atlas_counsel.eval        # aggregate + per-tag breakdown
+uv run python -m atlas_counsel.eval --ab   # A/B two embedding configs
+```
+
+- **Retrieval metrics** (no LLM, exact): hit@k, context recall, AP-style context
+  precision, and MRR — scored against the golden set's known `supporting_span_ids`.
+- **Answer metrics** behind an `LLMJudge` protocol: a deterministic `HeuristicJudge`
+  runs in CI; inject an LLM-backed judge locally for faithfulness / answer-relevancy
+  at full fidelity.
+- **Refuse-if-ungrounded** is a scored dimension in its own right. The decision uses
+  *lexical grounding overlap*, not retrieval score — RRF fusion scores are rank-based
+  and carry no absolute relevance signal, so a score threshold can't tell answerable
+  from unanswerable.
+- **Per-tag slicing** reports each planted hard case separately, proving the hard ones
+  are handled, not just the easy ones.
+- **A/B table** across two embedding providers is the harness's native output — the
+  artifact the provider abstraction exists to produce.
+- A **regression gate** (`tests/test_eval.py`) locks in current aggregate quality so
+  future changes fail loudly instead of degrading silently.
+- **Langfuse** export is optional (`uv sync --extra langfuse`, set `LANGFUSE_*`); a
+  silent no-op otherwise, so CI never depends on it.
 
 ## License
 
