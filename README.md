@@ -15,6 +15,7 @@ changes. This README grows alongside the implementation, one pull request at a t
 ```bash
 uv sync --extra dev
 atlas-corpus          # generate the corpus under ./data
+uv run python -m atlas_counsel.ingest --dry-run   # in-memory retrieval demo
 uv run pytest
 ```
 
@@ -47,6 +48,40 @@ contains.
 `atlas-corpus` writes one markdown file per document (with recoverable
 `<!-- span:ID -->` anchors), a `manifest.json` span index, and `golden.jsonl` for
 the eval harness.
+
+## Retrieval design
+
+- **Hybrid, native.** Each chunk carries a dense vector and a sparse (lexical)
+  vector; queries fuse both channels with Reciprocal Rank Fusion (RRF). The sparse
+  channel rescues exact tokens — `$25,000`, `99.5%` — that a semantic dense model
+  smears together. `tests/test_retrieval.py` proves a real fusion win on a query
+  where the two channels disagree.
+- **Vector-space safety by construction.** Each embedding provider declares a
+  `space_id`, and the collection name is derived from it (`counsel_bge-m3`,
+  `counsel_titan-v2`). A local-dev index and a prod index are physically separate
+  collections — you cannot query one space against the other by accident.
+- **Provider abstraction.** `EmbeddingProvider` is a Protocol yielding dense +
+  sparse per text. `HashingEmbedder` is a deterministic, offline stand-in for CI;
+  real bge-m3 (dev) and Titan (prod) providers implement the same interface, so
+  dev/prod is a config swap, not a code branch.
+
+Two backends implement the same `Retriever` protocol: `InMemoryHybridRetriever`
+(reference RRF fusion, no services, used in CI) and `QdrantHybridRetriever`
+(Qdrant named vectors + server-side RRF via the Query API). Both return chunks
+carrying their `span_id`, so downstream citation checking is identical regardless
+of backend.
+
+### Running against a real Qdrant
+
+```bash
+docker compose up -d
+uv sync --extra qdrant
+uv run python -m atlas_counsel.ingest --url http://localhost:6333
+uv run pytest tests/test_qdrant_integration.py -v
+```
+
+The integration test skips automatically when `qdrant-client` is absent or no
+server is reachable, so the default offline suite never depends on it.
 
 ## License
 
