@@ -84,6 +84,35 @@ uv run pytest tests/test_qdrant_integration.py -v
 The integration test skips automatically when `qdrant-client` is absent or no
 server is reachable, so the default offline suite never depends on it.
 
+### Advanced stages: rerank + query decomposition
+
+Two optional stages compose around the base retriever via `RetrievalPipeline`,
+each independently toggleable so the eval harness can attribute any metric change
+to a specific stage:
+
+```text
+query --(decompose?)--> sub-queries --retrieve + merge--> --(rerank?)--> top_k
+```
+
+- **Reranking** — `TokenInteractionReranker` is a deterministic offline proxy for
+  CI (token interaction + a phrase-adjacency bonus, scored without ever consulting
+  golden spans). `CrossEncoderReranker` wraps bge-reranker-v2-m3 for production.
+- **Query decomposition** — conditional by design: a query is split only when it
+  names ≥ 2 known entities *and* carries a comparison cue, so simple queries pass
+  through untouched. Multi-hop questions retrieve per-entity and merge, recovering
+  the starved side.
+
+```bash
+uv run python -m atlas_counsel.ablation   # baseline vs +rerank vs +decompose vs +both
+```
+
+On this small corpus, first-stage hybrid nearly saturates retrieval, so the offline
+lexical proxies show **no net gain** — and that's reported, not hidden. The stages
+ship as correct, unit-tested infrastructure; the production cross-encoder and an LLM
+decomposer are the implementations expected to win, confirmed through this same
+harness. The proxies are deliberately *not* tuned toward the golden spans to
+manufacture an improvement.
+
 ## Evaluation harness
 
 Measured *before* the agent exists, so every later change is regression-checked
