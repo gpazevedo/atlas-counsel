@@ -113,6 +113,37 @@ decomposer are the implementations expected to win, confirmed through this same
 harness. The proxies are deliberately *not* tuned toward the golden spans to
 manufacture an improvement.
 
+## The agent: LangGraph StateGraph
+
+A compiled `StateGraph` with conditional routing, a checkpointed human-gate, and
+a bounded verify/retry loop.
+
+```bash
+uv run python -m atlas_counsel.agent --q "who approves a $60,000 purchase?"
+uv run python -m atlas_counsel.agent --q "policy on supplier gifts?" --decline
+```
+
+```text
+plan -> retrieve -> validate --grounded--> synthesize -> verify --pass--> finalize
+                            \--insufficient--> human_gate          \--unfaithful--/ (bounded retry)
+                                                                      \--exhausted--> human_gate
+```
+
+- **Structured outputs / citation grounding.** `synthesize` emits a Pydantic
+  `DraftAnswer` whose every `Claim` carries a `span_id`; `verify` rejects any claim
+  citing a span that wasn't retrieved (or whose text drifted from it) — proven by
+  `test_hallucination_is_bounded_and_escalates`. A hallucinated citation is caught
+  before it ships, by the type system and a verify node, not by prompt politeness.
+- **Human-assisted decisions.** `human_gate` uses LangGraph `interrupt()`; the run
+  pauses and the caller resumes with `Command(resume=...)` to steer or decline. State
+  survives the pause via the injected checkpointer.
+- **Bounded loops.** The verify -> synthesize retry is capped at `MAX_ATTEMPTS`, then
+  escalates — no unbounded LLM spinning.
+- **Provider abstraction.** An `LLMProvider` protocol with an offline `TemplateLLM`
+  for CI (cites only retrieved spans, never fabricates) and real Ollama/Bedrock
+  injected locally. The checkpointer is injected too: `MemorySaver` (dev) or a
+  Sqlite saver (prod), without changing the graph topology.
+
 ## Evaluation harness
 
 Measured *before* the agent exists, so every later change is regression-checked
