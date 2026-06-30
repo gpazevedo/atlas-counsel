@@ -1,10 +1,29 @@
 {
-  "// note": "Example MCP client entry for Buyer Team's orchestrator to call ATLAS Counsel.",
+  "// note": "Example MCP client entries for Buyer Team's Strands orchestrator.",
+  "// local": "Run ATLAS Counsel as a local subprocess (stdin/stdout MCP). No auth in local mode.",
+  "// remote": "Connect to the deployed AWS instance over Streamable HTTP.",
+  "// jwt": "Prefer the JWT variant — the token carries the tenant_id claim, so each customer gets their own isolated tenant. Generate tokens with: python -c \"import jwt, time; print(jwt.encode({'tenant_id':'acme','iat':int(time.time()),'aud':'atlas-counsel'}, '<secret>', algorithm='HS256'))\"",
   "mcpServers": {
-    "atlas-counsel": {
-      "command": "python",
-      "args": ["-m", "atlas_counsel.service.mcp_server"],
-      "description": "Procurement RAG: counsel_ask, counsel_resume, counsel_brief"
+    "atlas-counsel-local": {
+      "command": "uv",
+      "args": ["run", "python", "-m", "atlas_counsel.service.mcp_server"],
+      "description": "Procurement RAG: counsel_ask, counsel_resume, counsel_brief, counsel_health"
+    },
+    "atlas-counsel-remote": {
+      "url": "https://<your-domain>/mcp",
+      "transport": "streamable-http",
+      "headers": {
+        "Authorization": "Bearer <your-jwt>"
+      },
+      "description": "Procurement RAG — JWT auth (multi-tenant)"
+    },
+    "atlas-counsel-remote-apikey": {
+      "url": "https://<your-domain>/mcp",
+      "transport": "streamable-http",
+      "headers": {
+        "x-api-key": "<value from: aws secretsmanager get-secret-value --secret-id atlas-counsel/mcp-api-key>"
+      },
+      "description": "Procurement RAG — API key auth (single-tenant fallback)"
     }
   }
 }
