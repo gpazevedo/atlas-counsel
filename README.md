@@ -347,6 +347,29 @@ context (a `current_tenant` ContextVar), so a caller can't act as another tenant
 In production, Terraform provisions the secrets and the HTTPS listener (see
 Deployment).
 
+## Safety
+
+Two correctness risks specific to a doc-grounded agent exposed as a tool are
+defended explicitly:
+
+- **Indirect prompt injection.** Retrieved document spans and recalled memories
+  are untrusted text. A shield (`agent/shield.py`) scans them at the retrieval
+  boundary and redacts injection-bearing sentences ("ignore previous
+  instructions", role/tag markers, identity resets, system-prompt exfiltration)
+  before they can reach synthesis — at sentence granularity, so legitimate
+  surrounding contract text is preserved and cited. The patterns are
+  conservative (zero hits across the clean corpus). Adversarial cases run in the
+  CI gate (`eval/adversarial.py`, `python -m atlas_counsel.eval.adversarial`):
+  with the shield, detection is 100% and compliance 0%; the undefended baseline
+  shows the directive leaking, so the gate can't pass vacuously.
+- **Memory poisoning.** `save_memory` writes only *trustworthy* answers —
+  grounded, faithful per the verify node, not refused, not human-escalated, and
+  not from a run where an injection was detected. A wrong or steered answer is
+  still returned to the caller but never persisted as a remembered "fact". The
+  `eval/memory_ab.py` harness (`python -m atlas_counsel.eval.memory_ab`) runs the
+  agent with memory on vs off to confirm recall works and memory is safe before
+  it is trusted.
+
 ## Deployment
 
 Infrastructure-as-code lives in `infra/` (Terraform): a VPC, an Application

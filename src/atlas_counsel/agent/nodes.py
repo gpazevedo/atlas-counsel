@@ -25,6 +25,7 @@ from langgraph.types import interrupt
 
 from .llm import LLMProvider
 from .schemas import CounselAnswer
+from .shield import sanitize_chunks, sanitize_text
 from .state import CounselState
 from ..decompose import QueryDecomposer
 from ..eval.answerer import grounding_overlap
@@ -34,6 +35,28 @@ from ..retrieval import Retriever
 MAX_ATTEMPTS = 2
 GROUNDING_THRESHOLD = 0.25
 MAX_GAP_ITERATIONS = 2
+
+
+def _is_trustworthy(state: CounselState) -> bool:
+    """Whether an answer is safe to persist to long-term memory.
+
+    Only clean, automated successes qualify: a non-refused answer that the
+    pipeline grounded and the verify node found faithful, with no human
+    escalation and no injection detected during the run. This is the gate that
+    prevents memory poisoning — a wrong/steered/tainted answer is still returned
+    to the caller but never written back as a remembered "fact".
+    """
+    ans = state.get("answer")
+    if ans is None or ans.refused:
+        return False
+    if state.get("injection_detected", False):
+        return False
+    if state.get("escalated", False):
+        return False
+    if not state.get("grounded", False):
+        return False
+    verdict = state.get("verdict")
+    return verdict is not None and verdict.faithful
 
 
 def make_nodes(
@@ -66,7 +89,12 @@ def make_nodes(
                 if cur is None or rc.score > cur.score:  # type: ignore[union-attr]
                     merged[rc.chunk.span_id] = rc
         ranked = sorted(merged.values(), key=lambda rc: -rc.score)  # type: ignore[attr-defined]
-        return {"retrieved": ranked}
+        # Untrusted document text enters the agent here. Neutralize any embedded
+        # instructions before they can reach synthesis (indirect prompt injection
+        # defense). The flag accumulates across gap-analysis rounds.
+        ranked, detections = sanitize_chunks(ranked)
+        injection = state.get("injection_detected", False) or bool(detections)
+        return {"retrieved": ranked, "injection_detected": injection}
 
     def validate(state: CounselState) -> CounselState:
         # Grounding decision on actual retrieved content — this replaces the
@@ -158,13 +186,29 @@ def make_nodes(
             for s in skills:
                 parts.append(f"- [{s.name}] {s.fragment}")
 
-        return {"memory_context": "\n".join(parts) if parts else ""}
+        context = "\n".join(parts) if parts else ""
+        if context:
+            # Recalled memories are also untrusted (a past run could have stored
+            # tainted text); neutralize before folding into the prompt.
+            context, det = sanitize_text(context)
+            if det:
+                return {"memory_context": context, "injection_detected": True}
+        return {"memory_context": context}
 
     def save_memory(state: CounselState) -> CounselState:
-        """Reflect on the completed answer and persist memories."""
-        ans = state.get("answer")
-        if ans is None or ans.refused:
-            return {}
+        """Reflect on the completed answer and persist memories — but only when
+        the answer is trustworthy.
+
+        A wrong or unverified answer that became an episodic "fact" would poison
+        every later run that recalls it. So persistence is gated: the answer must
+        be a clean, automated success — grounded, faithful per the verify node,
+        not a refusal, not human-escalated, and not produced from a run in which
+        an injection was detected. Everything else is answered for the user but
+        never written back to memory.
+        """
+        if not _is_trustworthy(state):
+            return {"memory_persisted": False}
+        ans = state["answer"]
         tenant = state.get("tenant_id", "default")
         thread_id = state.get("thread_id", "default")
         reflection = llm.reflect(state["question"], ans.text, thread_id)
@@ -176,7 +220,7 @@ def make_nodes(
             )
         for skill in reflection.skills:
             memory_store.procedural_save(skill, tenant_id=tenant)
-        return {}
+        return {"memory_persisted": True}
 
     result: dict = {
         "plan": plan, "retrieve": retrieve, "validate": validate,
