@@ -35,6 +35,8 @@ gate, and checkpointed state for resumable runs.
 
 ![LangGraph implementation](images/atlas-counsel-langgraph.svg)
 
+The rationale behind these and other choices is recorded as Architecture Decision Records in [`docs/adr/`](docs/adr/).
+
 ## The corpus and golden set
 
 The corpus is **fully seeded and template-driven — no LLM calls, no network**. Same
