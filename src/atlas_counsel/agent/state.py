@@ -28,6 +28,7 @@ class CounselState(TypedDict, total=False):
 
     # --- retrieve ---
     retrieved: list[RetrievedChunk]
+    injection_detected: bool  # an injection was found+neutralized in untrusted text
 
     # --- validate ---
     grounded: bool          # did retrieval surface enough to answer?
@@ -47,3 +48,4 @@ class CounselState(TypedDict, total=False):
 
     # --- output ---
     answer: CounselAnswer
+    memory_persisted: bool   # did save_memory persist (trustworthy answer)?
