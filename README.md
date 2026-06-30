@@ -293,6 +293,23 @@ deploys. Remote state is kept in S3 with DynamoDB-based locking. CI
 `main`, authenticating via OIDC (no long-lived AWS keys). See `infra/README.md`
 for the one-time state/OIDC bootstrap and `terraform apply`.
 
+## Meta-evaluation: judging the judge
+
+The offline `HeuristicJudge` is only trustworthy if its scores reflect content,
+not surface style. `eval/meta_eval.py` probes for that: it generates an answer
+per answerable golden item, then creates content-preserving perturbations that
+change only surface features — fluent vs. choppy phrasing, confident vs. hedging
+tone — and measures how much the judge's faithfulness/relevancy move between
+variants. A fair judge shows deltas near zero (the token-overlap judge does,
+which also proves the perturbations preserve content); a real LLM judge would
+reveal genuine fluency/confidence bias. It also reports Spearman correlation
+between judge scores and retrieval quality (precision/recall), all with a pure
+Python rank-correlation and no extra dependencies.
+
+```bash
+python -m atlas_counsel.eval --meta
+```
+
 ## License
 
 GNU AGPL v3 — see [LICENSE](LICENSE).
