@@ -180,6 +180,26 @@ The compiled graph is exposed as MCP tools — `counsel_ask`, `counsel_resume`,
 Run locally over stdio; see `buyer-team-mcp.example.json` for the client entry. A
 `Dockerfile` packages the FastAPI service and MCP server in one image.
 
+## Resilience
+
+Production hardening so transient failures degrade gracefully instead of erroring:
+
+- **Durable checkpointer.** `CounselService` defaults to a SQLite-backed
+  `SqliteSaver` (path via `COUNSEL_CHECKPOINT_DB`), so a paused human-gate run
+  survives a process restart and is still resumable.
+- **Qdrant retry + timeout.** The Qdrant retriever's `ensure_collection`, `index`,
+  and `search` are wrapped with exponential-backoff retries on connection/timeout
+  errors (and only those), with a bounded client timeout.
+- **In-memory fallback.** A `FallbackRetriever` wraps the primary retriever; if it
+  fails, requests silently degrade to the pre-indexed in-memory index, with a
+  `try_restore` probe to recover.
+- **Input validation.** Request models bound question length and constrain the
+  resume `action`; oversize or malformed input is rejected with 422.
+- **Deep health.** `GET /health` (and the `counsel_health` MCP tool) probe the
+  graph and checkpointer, not just liveness, returning `degraded` when a
+  dependency is unhealthy. An unhandled error returns a structured `error` result
+  rather than a bare 500.
+
 ## Evaluation harness
 
 Measured *before* the agent exists, so every later change is regression-checked
