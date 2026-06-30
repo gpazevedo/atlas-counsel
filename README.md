@@ -159,6 +159,16 @@ bounded by `MAX_GAP_ITERATIONS`; once exhausted without sufficient grounding, it
 falls through to the human gate. A genuinely unanswerable question therefore
 still escalates, just after exhausting cheap self-help first.
 
+### Optional human-in-the-loop
+
+The human gate is on by default, but unattended deployments can disable it:
+`build_counsel_graph(..., hitl_enabled=False)` (or `CounselService(hitl_enabled=False)`,
+or the agent CLI's `--no-hitl`). With it off, a run that would otherwise pause —
+exhausted gap-analysis or exhausted synthesis retries — instead routes straight
+to `finalize` and returns a plain refusal rather than blocking on a human. User-
+facing refusal text and the MCP tool descriptions are domain-neutral (no
+hard-coded "procurement" wording), so the same service fronts any corpus.
+
 ## Runtime: FastAPI + MCP
 
 The graph is exposed over two transports, both thin wrappers over one
