@@ -13,3 +13,6 @@ dist/
 
 # Generated corpus / eval artifacts
 /data/
+
+# Durable checkpointer
+*.db
