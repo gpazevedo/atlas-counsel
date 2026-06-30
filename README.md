@@ -144,6 +144,38 @@ plan -> retrieve -> validate --grounded--> synthesize -> verify --pass--> finali
   injected locally. The checkpointer is injected too: `MemorySaver` (dev) or a
   Sqlite saver (prod), without changing the graph topology.
 
+## Runtime: FastAPI + MCP
+
+The graph is exposed over two transports, both thin wrappers over one
+`CounselService` — so HTTP and MCP behave identically (proven by
+`test_mcp_and_http_agree`).
+
+```bash
+uv sync --extra service
+uv run uvicorn atlas_counsel.service.api:app        # HTTP on :8000
+uv run python -m atlas_counsel.service.mcp_server   # MCP stdio server
+```
+
+**REST**
+
+- `POST /ask {question}` -> `{status, thread_id, answer, citations[]}`
+- `POST /resume {thread_id, action, guidance?}` -> same shape
+- `WS /ws/ask` -> streams `{event:"node", node}` per step, then a terminal
+  `result` / `needs_input` frame
+
+**Interrupt across stateless calls.** The agent pauses at the human-gate via
+LangGraph `interrupt()`, but HTTP/MCP are request/response. So a paused run returns
+`status="needs_input"` plus a `thread_id`; a second `/resume` call continues it. The
+checkpointer carries state across those two otherwise-independent calls — the core
+integration design.
+
+### Buyer Team integration
+
+The compiled graph is exposed as MCP tools — `counsel_ask`, `counsel_resume`,
+`counsel_brief` — so Buyer Team's orchestrator calls it as one tool among its own.
+Run locally over stdio; see `buyer-team-mcp.example.json` for the client entry. A
+`Dockerfile` packages the FastAPI service and MCP server in one image.
+
 ## Evaluation harness
 
 Measured *before* the agent exists, so every later change is regression-checked
