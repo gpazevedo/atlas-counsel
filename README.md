@@ -311,6 +311,25 @@ The MCP server runs two ways from the same `CounselService`:
 
 See `buyer-team-mcp.example.json` for local and remote client entries.
 
+## Authentication
+
+The `/mcp` endpoint is guarded by a small ASGI middleware (REST routes are
+unaffected). It supports two schemes:
+
+- **JWT** (`Authorization: Bearer …`, HS256) — the token's `tenant_id` claim
+  selects the tenant, so one deployment serves many isolated customers. Audience
+  is verified when `MCP_JWT_AUDIENCE` is set.
+- **API key** (`x-api-key`) — single-tenant fallback, compared in constant time
+  with `hmac.compare_digest`.
+
+Behaviour is fail-safe: with neither `MCP_API_KEY` nor `MCP_JWT_SECRET` set the
+endpoint runs unauthenticated but logs a startup warning, and if
+`MCP_REQUIRE_AUTH` is set without any secret the app refuses to boot. The MCP
+tools never accept a `tenant_id` argument — it's derived from the verified auth
+context (a `current_tenant` ContextVar), so a caller can't act as another tenant.
+In production, Terraform provisions the secrets and the HTTPS listener (see
+Deployment).
+
 ## Deployment
 
 Infrastructure-as-code lives in `infra/` (Terraform): a VPC, an Application

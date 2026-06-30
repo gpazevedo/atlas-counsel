@@ -2,3 +2,8 @@ region              = "us-east-1"
 qdrant_url          = "https://your-cluster.qdrant.cloud:6333"
 container_image_tag = "latest"
 desired_count       = 1
+
+# ACM certificate ARN for the ALB HTTPS listener.
+# Must be in the SAME region as the ALB and cover the domain you point at the ALB.
+# Request + DNS-validate it in ACM first, then point that domain's DNS at the ALB.
+certificate_arn     = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"

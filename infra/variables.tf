@@ -22,6 +22,11 @@ variable "qdrant_url" {
   sensitive   = true
 }
 
+variable "certificate_arn" {
+  description = "ARN of the ACM certificate for HTTPS (must cover the domain pointing to the ALB)"
+  type        = string
+}
+
 variable "desired_count" {
   description = "Number of ECS tasks to run"
   type        = number

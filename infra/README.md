@@ -9,6 +9,7 @@ keyless CI/CD via GitHub Actions OIDC.
 - AWS account with permissions to create the resources below
 - Terraform >= 1.5
 - Qdrant Cloud cluster (free tier works) — get the URL from the dashboard
+- An ACM certificate (in the ALB's region) covering the domain you'll point at the ALB
 - A GitHub Actions OIDC provider in the account (one per account; see below)
 
 ## One-time bootstrap (remote state)
@@ -64,12 +65,33 @@ terraform apply
 - EFS file system for per-tenant SQLite checkpoints (encrypted at rest)
 - ECR repository for Docker images
 - CloudWatch log group (30-day retention)
+- HTTPS listener (ACM cert) with HTTP→HTTPS redirect; TLS 1.2/1.3 policy
+- Secrets Manager entries for the Qdrant URL, a generated MCP API key, and a
+  generated JWT signing secret — injected into the task as secrets, never env
 - GitHub Actions OIDC deploy role (keyless ECR push + ECS deploy)
-- Security groups: ALB public, app from ALB only, EFS from app only
+- Security groups: ALB public (80+443), app from ALB only, EFS from app only
 
-## Required secrets
+## Auth & secrets
+
+The `/mcp` endpoint requires auth in production (`MCP_REQUIRE_AUTH=true` is set on
+the task). Terraform generates the MCP API key and JWT signing secret and stores
+all three of `qdrant_url`, `mcp-api-key`, and `mcp-jwt-secret` in Secrets Manager;
+the task's execution role is granted `secretsmanager:GetSecretValue` on exactly
+those ARNs. Retrieve the API key after apply:
+
+```bash
+aws secretsmanager get-secret-value --secret-id atlas-counsel/mcp-api-key \
+  --query SecretString --output text
+```
+
+Prefer JWT auth for multi-tenancy: a token's `tenant_id` claim selects the tenant,
+so each customer is isolated. Mint tokens with the `mcp-jwt-secret` value and
+`aud=atlas-counsel`.
+
+## Required inputs
 
 - `qdrant_url` — Qdrant Cloud cluster URL (set in terraform.tfvars, not committed)
+- `certificate_arn` — ACM cert ARN for the HTTPS listener
 
 ## Cleaning up
 

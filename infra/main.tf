@@ -5,6 +5,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
   }
 
   # Remote state in S3 with DynamoDB-based state locking. The bucket and lock
@@ -114,6 +118,45 @@ resource "aws_efs_mount_target" "data" {
   security_groups = [aws_security_group.efs.id]
 }
 
+# ── Secrets Manager ───────────────────────────────────────────────────────────
+
+resource "random_password" "mcp_api_key" {
+  length  = 32
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "qdrant_url" {
+  name = "${var.project}/qdrant-url"
+}
+
+resource "aws_secretsmanager_secret_version" "qdrant_url" {
+  secret_id     = aws_secretsmanager_secret.qdrant_url.id
+  secret_string = var.qdrant_url
+}
+
+resource "aws_secretsmanager_secret" "mcp_api_key" {
+  name = "${var.project}/mcp-api-key"
+}
+
+resource "aws_secretsmanager_secret_version" "mcp_api_key" {
+  secret_id     = aws_secretsmanager_secret.mcp_api_key.id
+  secret_string = random_password.mcp_api_key.result
+}
+
+resource "random_password" "mcp_jwt_secret" {
+  length  = 64
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "mcp_jwt_secret" {
+  name = "${var.project}/mcp-jwt-secret"
+}
+
+resource "aws_secretsmanager_secret_version" "mcp_jwt_secret" {
+  secret_id     = aws_secretsmanager_secret.mcp_jwt_secret.id
+  secret_string = random_password.mcp_jwt_secret.result
+}
+
 # ── ALB ───────────────────────────────────────────────────────────────────────
 
 resource "aws_security_group" "alb" {
@@ -123,6 +166,12 @@ resource "aws_security_group" "alb" {
   ingress {
     from_port   = 80
     to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 443
+    to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -140,6 +189,7 @@ resource "aws_lb" "main" {
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
   subnets            = aws_subnet.public[*].id
+  idle_timeout       = 300
 }
 
 resource "aws_lb_target_group" "app" {
@@ -158,6 +208,22 @@ resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = 80
   protocol          = "HTTP"
+  default_action {
+    type = "redirect"
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
+resource "aws_lb_listener" "https" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn   = var.certificate_arn
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.app.arn
@@ -205,8 +271,14 @@ resource "aws_ecs_task_definition" "app" {
       protocol      = "tcp"
     }]
     environment = [
-      { name = "QDRANT_URL", value = var.qdrant_url },
       { name = "CHECKPOINT_DIR", value = "/data" },
+      { name = "MCP_REQUIRE_AUTH", value = "true" },
+      { name = "MCP_JWT_AUDIENCE", value = "atlas-counsel" },
+    ]
+    secrets = [
+      { name = "QDRANT_URL", valueFrom = aws_secretsmanager_secret.qdrant_url.arn },
+      { name = "MCP_API_KEY", valueFrom = aws_secretsmanager_secret.mcp_api_key.arn },
+      { name = "MCP_JWT_SECRET", valueFrom = aws_secretsmanager_secret.mcp_jwt_secret.arn },
     ]
     mountPoints = [{
       sourceVolume  = "checkpoints"
@@ -250,7 +322,7 @@ resource "aws_ecs_service" "app" {
     container_name   = var.project
     container_port   = 8000
   }
-  depends_on = [aws_lb_listener.http]
+  depends_on = [aws_lb_listener.http, aws_lb_listener.https]
 }
 
 # ── CloudWatch Logs ────────────────────────────────────────────────────────────
@@ -277,6 +349,23 @@ resource "aws_iam_role" "task_exec" {
 resource "aws_iam_role_policy_attachment" "task_exec" {
   role       = aws_iam_role.task_exec.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+resource "aws_iam_role_policy" "task_exec_secrets" {
+  name = "${var.project}-task-exec-secrets"
+  role = aws_iam_role.task_exec.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = ["secretsmanager:GetSecretValue"]
+      Resource = [
+        aws_secretsmanager_secret.qdrant_url.arn,
+        aws_secretsmanager_secret.mcp_api_key.arn,
+        aws_secretsmanager_secret.mcp_jwt_secret.arn,
+      ]
+    }]
+  })
 }
 
 resource "aws_iam_role" "task" {

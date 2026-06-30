@@ -10,6 +10,7 @@ characters to prevent path traversal and filesystem issues.
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import os
 import re
@@ -30,6 +31,9 @@ from ..retrieval import InMemoryHybridRetriever, Retriever
 from ..telemetry import get_tracer
 
 DEFAULT_TENANT = "default"
+current_tenant: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "current_tenant", default=DEFAULT_TENANT
+)
 _DEFAULT_CHECKPOINT_DIR = "data"
 _TENANT_ID_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 _TENANT_ID_MAX = 64
