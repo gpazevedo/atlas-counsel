@@ -148,6 +148,17 @@ plan -> retrieve -> validate --grounded--> synthesize -> verify --pass--> finali
   injected locally. The checkpointer is injected too: `MemorySaver` (dev) or a
   Sqlite saver (prod), without changing the graph topology.
 
+### Gap-aware iterative retrieval
+
+When `validate` finds the retrieved spans don't sufficiently ground the
+question, the graph doesn't escalate immediately: a `gap_analyze` node asks the
+LLM which of the question's content tokens are still uncovered, issues those as
+follow-up queries, and loops back through `retrieve` — whose results *merge into*
+(rather than replace) the existing set, so coverage accumulates. The loop is
+bounded by `MAX_GAP_ITERATIONS`; once exhausted without sufficient grounding, it
+falls through to the human gate. A genuinely unanswerable question therefore
+still escalates, just after exhausting cheap self-help first.
+
 ## Runtime: FastAPI + MCP
 
 The graph is exposed over two transports, both thin wrappers over one
