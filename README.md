@@ -201,6 +201,25 @@ The compiled graph is exposed as MCP tools — `counsel_ask`, `counsel_resume`,
 Run locally over stdio; see `buyer-team-mcp.example.json` for the client entry. A
 `Dockerfile` packages the FastAPI service and MCP server in one image.
 
+## Multi-tier memory
+
+An optional `memory/` layer gives the agent cross-session recall across three
+tiers, each with its own access pattern:
+
+- **Semantic** — durable facts written explicitly, retrieved by embedding similarity.
+- **Episodic** — one rolling per-thread summary, upserted and retrieved by similarity.
+- **Procedural** — learned prompt fragments with `when_to_use` cues, retrieved just in time.
+
+`MemoryStore` is a Protocol with two implementations: `InMemoryMemoryStore`
+(dict-based, embedder-driven, for CI) and `SqliteMemoryStore` (per-tenant SQLite
+with JSON embeddings, similarity computed in Python — fine at per-tenant scale).
+When a `memory_store` is injected, `build_counsel_graph` inserts a `load_memory`
+node before `plan` (which folds recalled facts/episodes/skills into the question)
+and a `save_memory` node after `finalize` (which reflects on the answer and
+persists new memories). Without one, the graph is unchanged — memory is strictly
+additive and backward compatible. The service wires a per-tenant
+`SqliteMemoryStore` automatically, so recall is tenant-scoped like checkpoints.
+
 ## Resilience
 
 Production hardening so transient failures degrade gracefully instead of erroring:

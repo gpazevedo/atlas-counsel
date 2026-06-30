@@ -39,7 +39,7 @@ def _drain(agen):
 def test_astream_streams_nodes_then_result_frame(svc):
     frames = _drain(svc.astream("What are NorthLink's payment terms?"))
     node_frames = [f for f in frames if f["event"] == "node"]
-    assert node_frames and node_frames[0]["node"] == "plan"
+    assert node_frames and node_frames[0]["node"] in ("plan", "load_memory")
     assert frames[-1]["event"] == "result"
     assert frames[-1]["status"] == "answered"
     assert any(c.startswith("CON-002") for c in frames[-1]["citations"])
