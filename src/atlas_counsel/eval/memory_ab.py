@@ -23,7 +23,6 @@ from __future__ import annotations
 from langgraph.checkpoint.memory import MemorySaver
 from pydantic import BaseModel
 
-from ..agent.graph import build_counsel_graph
 from ..chunking import chunk_corpus
 from ..corpus import build_corpus
 from ..embeddings import HashingEmbedder
@@ -80,6 +79,7 @@ def _invoke(graph, question: str, tenant: str, thread: str) -> dict:
 
 
 def run_memory_ab(scenarios: list[Scenario] = SCENARIOS) -> ABReport:
+    from ..agent.graph import build_counsel_graph  # lazy: avoids import cycle
     retriever = _build_retriever()
     results: list[ABResult] = []
 

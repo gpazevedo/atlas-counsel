@@ -21,12 +21,13 @@ from dataclasses import dataclass, field
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from ..agent import build_counsel_graph
-from ..agent.llm import LLMProvider, TemplateLLM
+from ..agent.llm import LLMProvider
 from ..chunking import chunk_corpus
 from ..corpus import build_corpus
 from ..decompose import HeuristicDecomposer, QueryDecomposer
 from ..embeddings import EmbeddingProvider, HashingEmbedder
 from ..memory.store import MemoryStore, SqliteMemoryStore
+from ..providers import make_embedder, make_llm
 from ..retrieval import InMemoryHybridRetriever, Retriever
 from ..telemetry import get_tracer
 
@@ -63,13 +64,13 @@ class TenantRegistry:
         embedder: EmbeddingProvider | None = None,
     ) -> None:
         self._retriever = retriever
-        self._llm = llm or TemplateLLM()
+        self._llm = llm or make_llm()
         self._decomposer = decomposer if decomposer is not None else HeuristicDecomposer()
         self._checkpoint_dir = checkpoint_dir or os.environ.get(
             "CHECKPOINT_DIR", _DEFAULT_CHECKPOINT_DIR
         )
         self._hitl_enabled = hitl_enabled
-        self._embedder = embedder or HashingEmbedder()
+        self._embedder = embedder or make_embedder()
         self._tenants: dict[str, Tenant] = {}
         self._lock = threading.Lock()
 
@@ -119,7 +120,7 @@ class TenantRegistry:
             db_path = os.path.join(tenant_dir, "checkpoints.db")
             conn = sqlite3.connect(db_path, check_same_thread=False)
             checkpointer = SqliteSaver(conn)
-            retriever = self._retriever or _default_retriever()
+            retriever = self._retriever or _default_retriever(self._embedder)
             memory_path = os.path.join(tenant_dir, "memory.db")
             memory_store = SqliteMemoryStore(memory_path, self._embedder)
             graph = build_counsel_graph(
@@ -147,7 +148,7 @@ class TenantRegistry:
             )
 
 
-def _default_retriever() -> Retriever:
-    retriever = InMemoryHybridRetriever(HashingEmbedder())
+def _default_retriever(embedder: EmbeddingProvider | None = None) -> Retriever:
+    retriever = InMemoryHybridRetriever(embedder or HashingEmbedder())
     retriever.index(chunk_corpus(build_corpus()))
     return retriever
