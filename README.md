@@ -84,6 +84,10 @@ uv run pytest tests/test_qdrant_integration.py -v
 The integration test skips automatically when `qdrant-client` is absent or no
 server is reachable, so the default offline suite never depends on it.
 
+Tokenization is centralized in a single `_tokenize` module, and each `Chunk`
+carries its tokens precomputed at chunking time — so the reranker, judge, and
+answerer reuse them instead of re-running regex over the same text on the hot path.
+
 ### Advanced stages: rerank + query decomposition
 
 Two optional stages compose around the base retriever via `RetrievalPipeline`,
