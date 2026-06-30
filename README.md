@@ -20,6 +20,21 @@ uv run python -m atlas_counsel.eval               # offline eval + per-tag break
 uv run pytest
 ```
 
+## Architecture
+
+The system splits into an offline ingest path — corpus → chunk → dual (dense +
+sparse) embed → Qdrant hybrid index — and an online query pipeline that
+decomposes, hybrid-retrieves with RRF fusion, optionally reranks, and answers
+through the agent graph, exposed over both REST and MCP.
+
+![ATLAS Counsel architecture](images/atlas-counsel-architecture.svg)
+
+The agent itself is a LangGraph `StateGraph`: conditional routing, a bounded
+gap-analysis re-retrieval loop, a faithfulness self-check, an optional human
+gate, and checkpointed state for resumable runs.
+
+![LangGraph implementation](images/atlas-counsel-langgraph.svg)
+
 ## The corpus and golden set
 
 The corpus is **fully seeded and template-driven — no LLM calls, no network**. Same
