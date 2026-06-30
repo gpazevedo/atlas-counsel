@@ -76,8 +76,9 @@ def test_verify_passes_for_grounded_claims():
 
 def test_route_after_validate():
     assert route_after_validate({"grounded": True}) == "synthesize"
-    assert route_after_validate({"grounded": False}) == "human_gate"
-    assert route_after_validate({}) == "human_gate"  # default: ungrounded
+    # Ungrounded now tries gap-analysis first, escalating only once exhausted.
+    assert route_after_validate({"grounded": False}) == "gap_analyze"
+    assert route_after_validate({}) == "gap_analyze"  # default: ungrounded, gaps left
 
 
 # --- refusal answer shape ---------------------------------------------------
