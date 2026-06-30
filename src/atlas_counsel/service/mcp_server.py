@@ -3,7 +3,10 @@
 The tools are thin wrappers over the SAME `CounselService` the FastAPI app
 uses, so behavior is identical across transports. This is the integration
 boundary in the architecture diagram: Buyer Team's Strands orchestrator lists
-`counsel.ask` / `counsel.brief` as tools and invokes them over MCP.
+`counsel.ask` / `counsel.brief` / `counsel.resume` as tools and invokes them over MCP.
+
+The caller's tenant is bound by the JWT or falls back to DEFAULT_TENANT.
+Callers never supply tenant_id — it's derived from the auth context.
 
 Run as an MCP stdio server (local dev):
 
@@ -19,7 +22,7 @@ from __future__ import annotations
 import os
 
 from .core import CounselService
-from .tenants import DEFAULT_TENANT
+from .tenants import current_tenant
 
 # Shared single instance; the FastAPI app creates its own via build_mcp_server().
 _service = CounselService()
@@ -41,10 +44,9 @@ def build_mcp_server(service: CounselService | None = None):
     mcp = FastMCP("atlas-counsel", host=host, port=port)
 
     @mcp.tool()
-    def counsel_ask(tenant_id: str, question: str) -> dict:
+    def counsel_ask(question: str) -> dict:
         """Answer a policy or contract question with citations.
 
-        tenant_id identifies the organization (e.g. 'acme', 'buyer-team').
         Returns a dict with status (answered | refused | needs_input), the
         answer text, citations (span ids), and a thread_id. If status is
         needs_input, call counsel_resume with that thread_id."""
@@ -53,24 +55,38 @@ def build_mcp_server(service: CounselService | None = None):
         if len(question) > 2000:
             return {"status": "error", "answer": "question too long"}
         try:
-            return svc.ask(question, tenant_id=tenant_id).model_dump()
+            return svc.ask(question, tenant_id=current_tenant.get()).model_dump()
         except ValueError as exc:
             return {"status": "error", "answer": str(exc)}
 
     @mcp.tool()
-    def counsel_resume(tenant_id: str, thread_id: str, action: str,
+    def counsel_resume(thread_id: str, action: str,
                        guidance: str = "") -> dict:
         """Resume a paused counsel run that hit the human-gate.
 
         action is 'steer' (proceed, optionally guided by `guidance`, e.g. a
-        document id) or 'decline' (refuse safely). tenant_id must match the
-        tenant used in the original counsel_ask call."""
+        document id) or 'decline' (refuse safely)."""
         if action not in ("steer", "decline"):
             return {"status": "error", "answer": "action must be 'steer' or 'decline'"}
         try:
             return svc.resume(
-                thread_id, action, guidance=guidance or None, tenant_id=tenant_id,
+                thread_id, action, guidance=guidance or None,
+                tenant_id=current_tenant.get(),
             ).model_dump()
+        except ValueError as exc:
+            return {"status": "error", "answer": str(exc)}
+
+    @mcp.tool()
+    def counsel_brief(vendor: str) -> dict:
+        """Generate a negotiation pre-brief grounded in the vendor's contract
+        and any prior negotiation logs for the authenticated tenant."""
+        question = (
+            f"Summarize the key contract terms and negotiation precedent for "
+            f"{vendor}: service levels, payment terms, liability, and any prior "
+            f"negotiation outcomes."
+        )
+        try:
+            return svc.ask(question, tenant_id=current_tenant.get()).model_dump()
         except ValueError as exc:
             return {"status": "error", "answer": str(exc)}
 
@@ -78,20 +94,6 @@ def build_mcp_server(service: CounselService | None = None):
     def counsel_health() -> dict:
         """Deep health check: verifies graph, checkpointer, and retriever."""
         return svc.deep_health()
-
-    @mcp.tool()
-    def counsel_brief(tenant_id: str, vendor: str) -> dict:
-        """Generate a negotiation pre-brief grounded in the vendor's contract
-        and any prior negotiation logs."""
-        question = (
-            f"Summarize the key contract terms and negotiation precedent for "
-            f"{vendor}: service levels, payment terms, liability, and any prior "
-            f"negotiation outcomes."
-        )
-        try:
-            return svc.ask(question, tenant_id=tenant_id).model_dump()
-        except ValueError as exc:
-            return {"status": "error", "answer": str(exc)}
 
     return mcp
 

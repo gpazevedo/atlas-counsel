@@ -24,6 +24,11 @@ output "github_deploy_role_arn" {
 }
 
 output "mcp_endpoint" {
-  description = "MCP Streamable HTTP endpoint"
-  value       = "http://${aws_lb.main.dns_name}/mcp"
+  description = "ALB DNS name. The MCP endpoint is https://<your-domain>/mcp — the ACM cert won't match this *.elb.amazonaws.com name, so front it with the domain the cert covers."
+  value       = aws_lb.main.dns_name
+}
+
+output "mcp_api_key_secret_arn" {
+  description = "Secrets Manager ARN holding the generated MCP API key — retrieve with: aws secretsmanager get-secret-value --secret-id <arn>"
+  value       = aws_secretsmanager_secret.mcp_api_key.arn
 }
