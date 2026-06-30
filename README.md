@@ -200,6 +200,22 @@ Production hardening so transient failures degrade gracefully instead of errorin
   dependency is unhealthy. An unhandled error returns a structured `error` result
   rather than a bare 500.
 
+## Observability
+
+OpenTelemetry tracing is wired through the service with a strict no-op default:
+the `telemetry` module activates only when the OTEL SDK is installed (the `otel`
+extra) *and* `OTEL_EXPORTER_OTLP_ENDPOINT` is set — otherwise every tracer and
+span is a silent no-op, so neither tests nor local runs need a collector. When
+enabled, spans wrap `counsel.ask` / `counsel.resume` / `counsel.astream` and
+`tenant.create` (tagged with `tenant_id`, `thread_id`, and request size), the
+FastAPI app is auto-instrumented, and spans are batched to an OTLP endpoint.
+
+```bash
+uv sync --extra service --extra otel
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+export OTEL_SERVICE_NAME=atlas-counsel
+```
+
 ## Evaluation harness
 
 Measured *before* the agent exists, so every later change is regression-checked

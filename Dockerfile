@@ -3,7 +3,7 @@ FROM python:3.13-slim
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src ./src
-RUN pip install --no-cache-dir -e ".[service,qdrant]"
+RUN pip install --no-cache-dir -e ".[service,qdrant,otel]"
 
 # Per-tenant SQLite checkpoints live here (EFS volume in production).
 RUN mkdir -p /data
