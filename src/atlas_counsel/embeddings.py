@@ -71,6 +71,26 @@ def _hash_index(token: str, vocab_size: int) -> int:
     return int.from_bytes(h, "big") % vocab_size
 
 
+def _sparse_from_tokens(tokens: list[str], vocab_size: int) -> SparseVector:
+    tf: dict[int, float] = {}
+    for tok in tokens:
+        idx = _hash_index(tok, vocab_size)
+        tf[idx] = tf.get(idx, 0.0) + 1.0
+    items = sorted(tf.items())
+    return SparseVector(indices=[i for i, _ in items],
+                        values=[v for _, v in items])
+
+
+def lexical_sparse(text: str, vocab_size: int = 2 ** 16) -> SparseVector:
+    """Deterministic hashed-token term-frequency sparse vector.
+
+    This is the lexical channel a dense-only provider (e.g. Titan) pairs with its
+    dense vector so hybrid retrieval still has a sparse signal. bge-m3 supplies
+    its own learned sparse weights instead and does not need this.
+    """
+    return _sparse_from_tokens(_tokenize(text), vocab_size)
+
+
 class HashingEmbedder:
     """Deterministic, offline embedder for tests and CI.
 
@@ -109,13 +129,7 @@ class HashingEmbedder:
         return [v / norm for v in vec]
 
     def _sparse_one(self, tokens: list[str]) -> SparseVector:
-        tf: dict[int, float] = {}
-        for tok in tokens:
-            idx = _hash_index(tok, self._vocab)
-            tf[idx] = tf.get(idx, 0.0) + 1.0
-        items = sorted(tf.items())
-        return SparseVector(indices=[i for i, _ in items],
-                            values=[v for _, v in items])
+        return _sparse_from_tokens(tokens, self._vocab)
 
     def embed(self, texts: list[str]) -> list[Embedding]:
         out: list[Embedding] = []

@@ -370,6 +370,56 @@ defended explicitly:
   agent with memory on vs off to confirm recall works and memory is safe before
   it is trusted.
 
+## Backends
+
+The `EmbeddingProvider`, `LLMProvider`, and `LLMJudge` protocols are
+implementation-agnostic. The deterministic stubs (`HashingEmbedder`,
+`TemplateLLM`, `HeuristicJudge`) ship as the default so CI and a fresh checkout
+run with no model download and no network — they exercise the *plumbing*
+(fusion, ranking, the verify loop, the report format), not answer quality. Real
+backends are opt-in via environment, selected by the factory in
+`atlas_counsel.providers`:
+
+| Variable | Default | Options |
+|---|---|---|
+| `ATLAS_EMBEDDER` | `hashing` | `bge-m3`, `titan` |
+| `ATLAS_LLM` | `template` | `ollama`, `bedrock` |
+| `ATLAS_JUDGE` | `heuristic` | `llm` |
+| `ATLAS_JUDGE_LLM` | (falls back to `ATLAS_LLM`) | `ollama`, `bedrock` |
+
+**Embedders.** `bge-m3` (extra: `bge`, i.e. FlagEmbedding) is hybrid-native — one
+pass yields both the dense vector and learned lexical (sparse) weights, mapping
+straight onto `Embedding(dense, sparse)`. `titan` (extra: `bedrock`, i.e. boto3)
+returns a dense vector only, so it is paired with the deterministic
+`lexical_sparse` channel to keep hybrid retrieval intact. Each declares a
+distinct `space_id` (`bge-m3` vs `titan-v2`), so the retriever derives a separate
+Qdrant collection per space and the two are never mixed — vector-space safety is
+structural, not a thing you must remember.
+
+**LLM.** `ollama` (local dev, uses `httpx` from the `service` extra) and
+`bedrock` (prod, Converse API) share one `StructuredLLMProvider` base: each of
+synthesize / verify / gap-analyze / reflect is a prompt plus a hardened
+JSON-parse. Citation discipline matches the stub — claims must cite retrieved
+`span_id`s, and `verify` independently flags any claim citing a span absent from
+context, so a model that hallucinates a citation is caught even when it asserts
+faithfulness. Retrieved text is rendered as span-tagged DATA, never as
+instructions (spotlighting), reinforcing the injection shield.
+
+**Judge.** `ATLAS_JUDGE=llm` wraps a real LLM (`LLMBackedJudge`) to score
+faithfulness and answer-relevancy in [0, 1] — the judge the meta-evaluation
+bias work actually requires, since scoring a heuristic against a heuristic
+measures nothing. Requesting it over the `template` stub raises a clear error.
+
+```bash
+# local dev: bge-m3 embeddings + Ollama, real LLM judge
+export ATLAS_EMBEDDER=bge-m3 ATLAS_LLM=ollama ATLAS_JUDGE=llm
+# prod: Titan + Bedrock Claude
+export ATLAS_EMBEDDER=titan ATLAS_LLM=bedrock AWS_REGION=us-east-1
+```
+
+Nothing in the graph, runtime, or eval harness changes — the providers are a
+config swap behind the existing protocols.
+
 ## Deployment
 
 Infrastructure-as-code lives in `infra/` (Terraform): a VPC, an Application

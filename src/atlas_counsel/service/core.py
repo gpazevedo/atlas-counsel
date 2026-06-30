@@ -31,6 +31,7 @@ from ..chunking import chunk_corpus
 from ..corpus import build_corpus
 from ..decompose import QueryDecomposer
 from ..embeddings import EmbeddingProvider, HashingEmbedder
+from ..providers import make_embedder, make_llm
 from ..retrieval import InMemoryHybridRetriever, RetrievedChunk, Retriever
 from ..telemetry import get_tracer
 from .tenants import DEFAULT_TENANT, TenantRegistry
@@ -109,10 +110,12 @@ class CounselService:
         hitl_enabled: bool = True,
         embedder: EmbeddingProvider | None = None,
     ) -> None:
+        embedder = embedder or make_embedder()
+        llm = llm or make_llm()
         if retriever is None:
-            retriever = _default_retriever()
+            retriever = _default_retriever(embedder)
         else:
-            fallback = _default_retriever()
+            fallback = _default_retriever(embedder)
             retriever = FallbackRetriever(primary=retriever, fallback=fallback)
         self._registry = TenantRegistry(
             retriever=retriever, llm=llm, decomposer=decomposer,
@@ -263,7 +266,7 @@ class CounselService:
         )
 
 
-def _default_retriever() -> Retriever:
-    r = InMemoryHybridRetriever(HashingEmbedder())
+def _default_retriever(embedder: EmbeddingProvider | None = None) -> Retriever:
+    r = InMemoryHybridRetriever(embedder or HashingEmbedder())
     r.index(chunk_corpus(build_corpus()))
     return r
