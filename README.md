@@ -228,6 +228,44 @@ uv run python -m atlas_counsel.eval --ab   # A/B two embedding configs
 - **Langfuse** export is optional (`uv sync --extra langfuse`, set `LANGFUSE_*`); a
   silent no-op otherwise, so CI never depends on it.
 
+## Multi-tenancy
+
+`CounselService` is tenant-aware: each `tenant_id` gets its own SQLite
+checkpointer at `${CHECKPOINT_DIR}/{tenant_id}/checkpoints.db`, while the
+retriever (the read-only corpus) is shared. Graphs are compiled lazily per
+tenant and cached. Tenant ids must match `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`
+(max 64 chars) to keep them filesystem- and path-safe. A `thread_id` is only
+resumable by the tenant that created it; a cross-tenant resume returns a
+structured `error` rather than leaking or crashing.
+
+REST and MCP both accept `tenant_id` (defaulting to `"default"`):
+
+```
+POST /ask     {tenant_id, question}
+POST /resume  {tenant_id, thread_id, action, guidance?}
+```
+
+## Remote MCP
+
+The MCP server runs two ways from the same `CounselService`:
+
+- **stdio** (local dev): `python -m atlas_counsel.service.mcp_server`
+- **Streamable HTTP** (deployed): mounted at `/mcp` on the FastAPI app, so REST
+  and MCP share one port and one `TenantRegistry`.
+
+See `buyer-team-mcp.example.json` for local and remote client entries.
+
+## Deployment
+
+Infrastructure-as-code lives in `infra/` (Terraform): a VPC, an Application
+Load Balancer, ECS Fargate running the container, EFS for per-tenant
+checkpoints, ECR for images, and a GitHub Actions OIDC role for keyless
+deploys. Remote state is kept in S3 with DynamoDB-based locking. CI
+(`.github/workflows/ci.yml`) runs the test matrix on every push/PR; deploy
+(`deploy.yml`) builds and pushes to ECR and rolls the ECS service on push to
+`main`, authenticating via OIDC (no long-lived AWS keys). See `infra/README.md`
+for the one-time state/OIDC bootstrap and `terraform apply`.
+
 ## License
 
 GNU AGPL v3 — see [LICENSE](LICENSE).
